@@ -1,8 +1,6 @@
-# frontend/app/windows/main_window.py
 # -*- coding: utf-8 -*-
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, 
-    QMenuBar, QMessageBox
+    QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox
 )
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
@@ -65,7 +63,7 @@ class MainWindow(QMainWindow):
         lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.addWidget(lbl)
 
-        # Кнопки для примера
+        # Кнопки
         btn_users = QPushButton('Показать пользователей')
         btn_users.clicked.connect(self.show_users)
         layout.addWidget(btn_users)
@@ -130,6 +128,9 @@ class MainWindow(QMainWindow):
         self._show_api_data("/campaigns/", "Кампании", lambda c: f'{c["id"]}: {c["name"]} [{c["status"]}]')
 
     def send_campaign(self):
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
         headers = {'token': self.token}
         try:
             resp = requests.post(f"{BACKEND_URL}/campaigns/1/start_now", headers=headers, timeout=5)
@@ -142,6 +143,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Ошибка", f'Ошибка при запуске кампании: {e}')
 
     def _show_api_data(self, endpoint, title, formatter):
+        if not self.token:
+            QMessageBox.warning(self, title, "Токен не задан")
+            return
         headers = {'token': self.token}
         try:
             resp = requests.get(f"{BACKEND_URL}{endpoint}", headers=headers, timeout=5)
@@ -153,17 +157,21 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, title, f'Не удалось получить данные: {resp.text}')
         except Exception as e:
             QMessageBox.critical(self, title, f'Ошибка запроса: {e}')
+
     def preview_email(self, campaign_id: int, client_id: int):
-        import requests, os
-        BACKEND_URL = os.getenv('BACKEND_URL', 'http://127.0.0.1:8000')
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
         headers = {'token': self.token}
-        resp = requests.get(f"{BACKEND_URL}/emails/{campaign_id}/{client_id}", headers=headers)
-        if resp.status_code == 200:
-            email_data = resp.json()
-            subject = email_data.get('subject', '')
-            body = email_data.get('body', '')
-            preview = EmailPreviewWindow(subject=subject, body=body)
-            preview.exec()
-        else:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить письмо: {resp.text}")
+        try:
+            resp = requests.get(f"{BACKEND_URL}/emails/{campaign_id}/{client_id}", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                email_data = resp.json()
+                subject = email_data.get('subject', '')
+                body = email_data.get('body', '')
+                preview = EmailPreviewWindow(subject=subject, body=body)
+                preview.exec()
+            else:
+                QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить письмо: {resp.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при загрузке письма: {e}")
