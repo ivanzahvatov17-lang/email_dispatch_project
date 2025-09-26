@@ -1,7 +1,9 @@
 # frontend/app/windows/main_window.py
 # -*- coding: utf-8 -*-
-"""Главное окно приложения — демонстрация панели навигации, доступа к настройкам и справке."""
-from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMenuBar, QMessageBox
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, 
+    QMenuBar, QMessageBox
+)
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
 from .help_window import HelpWindow
@@ -21,17 +23,17 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.token = token
         self.setWindowTitle('Email Dispatch - Клиент (демо)')
-        self.resize(800, 600)
+        self.resize(900, 600)
         self.init_ui()
 
     def init_ui(self):
-        # Меню
+        # --- Меню ---
         menubar = self.menuBar()
         menu_file = menubar.addMenu('Файл')
         menu_settings = menubar.addMenu('Настройки')
         menu_help = menubar.addMenu('Помощь')
 
-        # Настройки — минимум 5 пунктов
+        # Настройки
         settings_action1 = QAction('SMTP настройки', self)
         settings_action2 = QAction('Пользователи', self)
         settings_action3 = QAction('Шаблоны', self)
@@ -56,17 +58,33 @@ class MainWindow(QMainWindow):
         help_action.triggered.connect(self.open_help)
         menu_help.addAction(help_action)
 
-        # Центральный виджет
+        # --- Центральный виджет ---
         central = QWidget()
         layout = QVBoxLayout()
-        lbl = QLabel('Добро пожаловать в систему автоматических рассылок.\n\nИспользуйте меню для навигации.')
+        lbl = QLabel('Добро пожаловать в систему автоматических рассылок.\n\nИспользуйте меню или кнопки ниже.')
         lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.addWidget(lbl)
 
-        # Кнопка для примера: показать пользователей
-        btn_users = QPushButton('Показать список пользователей (API)')
+        # Кнопки для примера
+        btn_users = QPushButton('Показать пользователей')
         btn_users.clicked.connect(self.show_users)
         layout.addWidget(btn_users)
+
+        btn_clients = QPushButton('Показать клиентов')
+        btn_clients.clicked.connect(self.show_clients)
+        layout.addWidget(btn_clients)
+
+        btn_templates = QPushButton('Показать шаблоны')
+        btn_templates.clicked.connect(self.show_templates)
+        layout.addWidget(btn_templates)
+
+        btn_campaigns = QPushButton('Показать кампании')
+        btn_campaigns.clicked.connect(self.show_campaigns)
+        layout.addWidget(btn_campaigns)
+
+        btn_send_campaign = QPushButton('Отправить кампанию ID=1')
+        btn_send_campaign.clicked.connect(self.send_campaign)
+        layout.addWidget(btn_send_campaign)
 
         central.setLayout(layout)
         self.setCentralWidget(central)
@@ -95,16 +113,40 @@ class MainWindow(QMainWindow):
     def open_about(self):
         QMessageBox.information(self, "О системе", "Email Dispatch Demo\nВерсия 1.0\nАвтор: Юля")
 
-    # --- Пример API-запроса ---
+    # --- API-запросы ---
     def show_users(self):
+        self._show_api_data("/users/", "Пользователи", lambda u: f'{u["id"]}: {u["username"]} ({u.get("email","")})')
+
+    def show_clients(self):
+        self._show_api_data("/clients/", "Клиенты", lambda c: f'{c["id"]}: {c["full_name"]} ({c.get("email","")})')
+
+    def show_templates(self):
+        self._show_api_data("/templates/", "Шаблоны", lambda t: f'{t["id"]}: {t["name"]}')
+
+    def show_campaigns(self):
+        self._show_api_data("/campaigns/", "Кампании", lambda c: f'{c["id"]}: {c["name"]} [{c["status"]}]')
+
+    def send_campaign(self):
         headers = {'token': self.token}
         try:
-            resp = requests.get(f"{BACKEND_URL}/users/", headers=headers, timeout=5)
+            resp = requests.post(f"{BACKEND_URL}/campaigns/1/start_now", headers=headers, timeout=5)
             if resp.status_code == 200:
-                users = resp.json()
-                msg = '\n'.join([f"{u["id"]}: {u["username"]} ({u.get("email","")})" for u in users])
-                QMessageBox.information(self, 'Пользователи', msg or 'Пусто')
+                data = resp.json()
+                QMessageBox.information(self, "Кампания", f'Статус кампании: {data.get("status")}')
             else:
-                QMessageBox.warning(self, 'Ошибка', f'Не удалось получить список: {resp.text}')
+                QMessageBox.warning(self, "Ошибка", f'Не удалось запустить кампанию: {resp.text}')
         except Exception as e:
-            QMessageBox.critical(self, 'Ошибка', f'Ошибка при запросе: {e}')
+            QMessageBox.critical(self, "Ошибка", f'Ошибка при запуске кампании: {e}')
+
+    def _show_api_data(self, endpoint, title, formatter):
+        headers = {'token': self.token}
+        try:
+            resp = requests.get(f"{BACKEND_URL}{endpoint}", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                items = resp.json()
+                msg = "\n".join([formatter(i) for i in items])
+                QMessageBox.information(self, title, msg or 'Пусто')
+            else:
+                QMessageBox.warning(self, title, f'Не удалось получить данные: {resp.text}')
+        except Exception as e:
+            QMessageBox.critical(self, title, f'Ошибка запроса: {e}')

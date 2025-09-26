@@ -8,6 +8,7 @@ from .. import models
 from ..schemas import UserOut  # если нужно
 from pydantic import BaseModel
 
+
 router = APIRouter(prefix="/templates", tags=["templates"])
 
 def get_db():
@@ -40,7 +41,7 @@ def create_template(data: TemplateIn, token: Optional[str] = Header(None), db: S
 def list_templates(token: Optional[str] = Header(None), db: Session = Depends(get_db)):
     if token is None:
         raise HTTPException(status_code=401, detail="Требуется токен")
-    _ = __import__('..api.auth', fromlist=['get_current_user'])
+    from app.api.auth import get_current_user
     from ..api.auth import get_current_user
     _ = get_current_user(token)
     rows = db.query(models.Template).all()
