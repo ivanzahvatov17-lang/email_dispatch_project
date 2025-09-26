@@ -107,7 +107,10 @@ class MainWindow(QMainWindow):
         w.exec()
 
     def open_campaign_management(self):
-        w = CampaignManagementWindow()
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
+        w = CampaignManagementWindow(token=self.token)
         w.exec()
 
     def open_about(self):
@@ -150,3 +153,17 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, title, f'Не удалось получить данные: {resp.text}')
         except Exception as e:
             QMessageBox.critical(self, title, f'Ошибка запроса: {e}')
+    def preview_email(self, campaign_id: int, client_id: int):
+        import requests, os
+        BACKEND_URL = os.getenv('BACKEND_URL', 'http://127.0.0.1:8000')
+        headers = {'token': self.token}
+        resp = requests.get(f"{BACKEND_URL}/emails/{campaign_id}/{client_id}", headers=headers)
+        if resp.status_code == 200:
+            email_data = resp.json()
+            subject = email_data.get('subject', '')
+            body = email_data.get('body', '')
+            preview = EmailPreviewWindow(subject=subject, body=body)
+            preview.exec()
+        else:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить письмо: {resp.text}")
