@@ -1,0 +1,5 @@
+{
+  "name": "Шаблон1",
+  "subject": "Привет {{full_name}}",
+  "body_html": "<p>Здравствуйте, {{full_name}}</p>"
+}
