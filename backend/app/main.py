@@ -1,32 +1,36 @@
 # backend/app/main.py
 # -*- coding: utf-8 -*-
-"""Запуск FastAPI-приложения."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from .api import auth, users
+from .api import templates, campaigns  # <-- наши новые модули
 from .db import engine
 from .models import Base
+from .scheduler import start_scheduler
 
 app = FastAPI(title="Email Dispatch - Backend (демо)")
 
-# Разрешаем CORS для локального фронтенда
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # для демонстрации — в продакшн сузьте
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Подключаем роутеры
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(templates.router)
+app.include_router(campaigns.router)
 
 @app.on_event("startup")
 def on_startup():
-    # Создаём таблицы, если их нет (для упрощённого локального запуска)
+    # Создаём таблицы, если нужно
     Base.metadata.create_all(bind=engine)
-    # При первом старте можно добавить тестового пользователя, если его нет
+    # Старт планировщика — перенесён в startup
+    start_scheduler()
+    # Добавление тестового пользователя (при необходимости)
     from .db import SessionLocal
     from . import models
     db = SessionLocal()
