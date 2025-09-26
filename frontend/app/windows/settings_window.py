@@ -1,13 +1,9 @@
-# -*- coding: utf-8 -*-
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
+import json
 import requests
-import os
-
-BACKEND_URL = os.getenv('BACKEND_URL', 'http://127.0.0.1:8000')
-
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
 
 class SettingsWindow(QDialog):
-    def __init__(self, token: str):
+    def __init__(self, token):
         super().__init__()
         self.token = token
         self.setWindowTitle("Настройки")
@@ -40,40 +36,38 @@ class SettingsWindow(QDialog):
         layout.addWidget(save_btn)
 
         self.setLayout(layout)
-
-        # Загружаем текущие настройки
         self.load_settings()
 
     def load_settings(self):
-        headers = {'token': self.token}
         try:
-            resp = requests.get(f"{BACKEND_URL}/settings/smtp", headers=headers, timeout=5)
+            resp = requests.get(f"http://127.0.0.1:8000/settings/smtp", headers={"token": self.token})
             if resp.status_code == 200:
-                data = resp.json()
-                self.smtp_host.setText(data.get("host", ""))
-                self.smtp_port.setText(str(data.get("port", "")))
-                self.smtp_user.setText(data.get("user", ""))
-                self.smtp_pass.setText(data.get("password", ""))
-                self.smtp_from.setText(data.get("from_email", ""))
+                data = json.loads(resp.json()["value"])
+                self.smtp_host.setText(data.get("host",""))
+                self.smtp_port.setText(str(data.get("port","")))
+                self.smtp_user.setText(data.get("user",""))
+                self.smtp_pass.setText(data.get("pass",""))
+                self.smtp_from.setText(data.get("from",""))
             else:
                 QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить настройки: {resp.text}")
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Ошибка при загрузке настроек: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при загрузке: {e}")
 
     def save_settings(self):
-        headers = {'token': self.token}
-        payload = {
+        data = {
             "host": self.smtp_host.text(),
-            "port": int(self.smtp_port.text() or 0),
+            "port": int(self.smtp_port.text()),
             "user": self.smtp_user.text(),
-            "password": self.smtp_pass.text(),
-            "from_email": self.smtp_from.text()
+            "pass": self.smtp_pass.text(),
+            "from": self.smtp_from.text()
         }
         try:
-            resp = requests.post(f"{BACKEND_URL}/settings/smtp", json=payload, headers=headers, timeout=5)
+            resp = requests.post(f"http://127.0.0.1:8000/settings/smtp",
+                                 headers={"token": self.token},
+                                 json={"value": json.dumps(data)})
             if resp.status_code == 200:
-                QMessageBox.information(self, "Настройки", "Настройки успешно сохранены")
+                QMessageBox.information(self, "Настройки", "Сохранено успешно")
             else:
-                QMessageBox.warning(self, "Ошибка", f"Не удалось сохранить настройки: {resp.text}")
+                QMessageBox.warning(self, "Ошибка", f"Не удалось сохранить: {resp.text}")
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Ошибка при сохранении настроек: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при сохранении: {e}")
