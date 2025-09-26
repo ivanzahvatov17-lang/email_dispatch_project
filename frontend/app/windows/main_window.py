@@ -10,6 +10,8 @@ from .user_management_window import UserManagementWindow
 from .template_management_window import TemplateManagementWindow
 from .campaign_management_window import CampaignManagementWindow
 from .email_preview_window import EmailPreviewWindow
+from .client_management_window import ClientManagementWindow
+from .group_management_window import GroupManagementWindow
 import requests
 import os
 
@@ -31,25 +33,21 @@ class MainWindow(QMainWindow):
         menu_settings = menubar.addMenu('Настройки')
         menu_help = menubar.addMenu('Помощь')
 
-        # Настройки
-        settings_action1 = QAction('SMTP настройки', self)
-        settings_action2 = QAction('Пользователи', self)
-        settings_action3 = QAction('Шаблоны', self)
-        settings_action4 = QAction('Кампании', self)
-        settings_action5 = QAction('О системе', self)
+        # Настройки и управление
+        actions = {
+            "SMTP настройки": self.open_smtp_settings,
+            "Пользователи": self.open_user_management,
+            "Клиенты": self.open_client_management,
+            "Группы": self.open_group_management,
+            "Шаблоны": self.open_template_management,
+            "Кампании": self.open_campaign_management,
+            "О системе": self.open_about
+        }
 
-        menu_settings.addAction(settings_action1)
-        menu_settings.addAction(settings_action2)
-        menu_settings.addAction(settings_action3)
-        menu_settings.addAction(settings_action4)
-        menu_settings.addAction(settings_action5)
-
-        # Подключаем слоты
-        settings_action1.triggered.connect(self.open_smtp_settings)
-        settings_action2.triggered.connect(self.open_user_management)
-        settings_action3.triggered.connect(self.open_template_management)
-        settings_action4.triggered.connect(self.open_campaign_management)
-        settings_action5.triggered.connect(self.open_about)
+        for name, func in actions.items():
+            act = QAction(name, self)
+            act.triggered.connect(func)
+            menu_settings.addAction(act)
 
         # Помощь
         help_action = QAction('Справка', self)
@@ -63,53 +61,86 @@ class MainWindow(QMainWindow):
         lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.addWidget(lbl)
 
-        # Кнопки
-        btn_users = QPushButton('Показать пользователей')
-        btn_users.clicked.connect(self.show_users)
-        layout.addWidget(btn_users)
-
-        btn_clients = QPushButton('Показать клиентов')
-        btn_clients.clicked.connect(self.show_clients)
-        layout.addWidget(btn_clients)
-
-        btn_templates = QPushButton('Показать шаблоны')
-        btn_templates.clicked.connect(self.show_templates)
-        layout.addWidget(btn_templates)
-
-        btn_campaigns = QPushButton('Показать кампании')
-        btn_campaigns.clicked.connect(self.show_campaigns)
-        layout.addWidget(btn_campaigns)
-
-        btn_send_campaign = QPushButton('Отправить кампанию ID=1')
-        btn_send_campaign.clicked.connect(self.send_campaign)
-        layout.addWidget(btn_send_campaign)
+        # Кнопки для быстрого доступа
+        btns = [
+            ("Показать пользователей", self.show_users),
+            ("Показать клиентов", self.show_clients),
+            ("Показать шаблоны", self.show_templates),
+            ("Показать кампании", self.show_campaigns),
+            ("Отправить кампанию ID=1", self.send_campaign)
+        ]
+        for text, func in btns:
+            btn = QPushButton(text)
+            btn.clicked.connect(func)
+            layout.addWidget(btn)
 
         central.setLayout(layout)
         self.setCentralWidget(central)
 
     # --- Методы открытия окон ---
-    def open_help(self):
-        hw = HelpWindow()
-        hw.exec()
-
+    # --- Методы открытия окон ---
     def open_smtp_settings(self):
-        w = SettingsWindow()
-        w.exec()
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
+        SettingsWindow(token=self.token).exec()
 
     def open_user_management(self):
-        w = UserManagementWindow()
-        w.exec()
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
+        UserManagementWindow(token=self.token).exec()
+
+    def open_client_management(self):
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
+        ClientManagementWindow(token=self.token).exec()
+
+    def open_group_management(self):
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
+        GroupManagementWindow(token=self.token).exec()
 
     def open_template_management(self):
-        w = TemplateManagementWindow()
-        w.exec()
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
+        TemplateManagementWindow(token=self.token).exec()
 
     def open_campaign_management(self):
         if not self.token:
             QMessageBox.warning(self, "Ошибка", "Токен не задан")
             return
-        w = CampaignManagementWindow(token=self.token)
-        w.exec()
+        CampaignManagementWindow(token=self.token).exec()
+    
+    def open_help(self):
+        HelpWindow().exec()
+
+    def open_smtp_settings(self):
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
+        SettingsWindow(self.token).exec()
+
+    def open_user_management(self):
+        UserManagementWindow().exec()
+
+    def open_client_management(self):
+        ClientManagementWindow().exec()
+
+    def open_group_management(self):
+        GroupManagementWindow().exec()
+
+    def open_template_management(self):
+        TemplateManagementWindow().exec()
+
+    def open_campaign_management(self):
+        if not self.token:
+            QMessageBox.warning(self, "Ошибка", "Токен не задан")
+            return
+        CampaignManagementWindow(token=self.token).exec()
 
     def open_about(self):
         QMessageBox.information(self, "О системе", "Email Dispatch Demo\nВерсия 1.0\nАвтор: Юля")
@@ -167,9 +198,8 @@ class MainWindow(QMainWindow):
             resp = requests.get(f"{BACKEND_URL}/emails/{campaign_id}/{client_id}", headers=headers, timeout=5)
             if resp.status_code == 200:
                 email_data = resp.json()
-                subject = email_data.get('subject', '')
-                body = email_data.get('body', '')
-                preview = EmailPreviewWindow(subject=subject, body=body)
+                preview = EmailPreviewWindow(subject=email_data.get('subject', ''),
+                                            body=email_data.get('body', ''))
                 preview.exec()
             else:
                 QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить письмо: {resp.text}")

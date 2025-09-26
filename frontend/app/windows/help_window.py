@@ -19,7 +19,7 @@ class HelpWindow(QDialog):
             "Автор: Захватов Иван Алексеевич\n"  # <-- Замените на реальные ФИО
             "Частное образовательное учреждение высшего образования\n"
             "«Московский университет имени С.Ю. Витте»\n\n"
-            "Версия: демо\n"
+            "Версия: 1\n"
         )
         lbl_info.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addWidget(lbl_info)
