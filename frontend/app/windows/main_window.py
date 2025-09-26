@@ -27,9 +27,7 @@ class MainWindow(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
-        # --- Меню ---
         menubar = self.menuBar()
-        menu_file = menubar.addMenu('Файл')
         menu_settings = menubar.addMenu('Настройки')
         menu_help = menubar.addMenu('Помощь')
 
@@ -54,14 +52,14 @@ class MainWindow(QMainWindow):
         help_action.triggered.connect(self.open_help)
         menu_help.addAction(help_action)
 
-        # --- Центральный виджет ---
+        # Центральный виджет
         central = QWidget()
         layout = QVBoxLayout()
         lbl = QLabel('Добро пожаловать в систему автоматических рассылок.\n\nИспользуйте меню или кнопки ниже.')
         lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.addWidget(lbl)
 
-        # Кнопки для быстрого доступа
+        # Кнопки быстрого доступа
         btns = [
             ("Показать пользователей", self.show_users),
             ("Показать клиентов", self.show_clients),
@@ -78,74 +76,57 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     # --- Методы открытия окон ---
-    # --- Методы открытия окон ---
-    def open_smtp_settings(self):
+    def _open_window(self, window_class):
+        """
+        Универсальный метод для открытия диалоговых окон с передачей токена.
+        """
         if not self.token:
             QMessageBox.warning(self, "Ошибка", "Токен не задан")
             return
-        SettingsWindow(token=self.token).exec()
+        window_class(token=self.token).exec()
 
+    # --- Методы открытия конкретных окон ---
     def open_user_management(self):
-        if not self.token:
-            QMessageBox.warning(self, "Ошибка", "Токен не задан")
-            return
-        UserManagementWindow(token=self.token).exec()
+        self._open_window(UserManagementWindow)
 
     def open_client_management(self):
-        if not self.token:
-            QMessageBox.warning(self, "Ошибка", "Токен не задан")
-            return
-        ClientManagementWindow(token=self.token).exec()
+        self._open_window(ClientManagementWindow)
 
     def open_group_management(self):
-        if not self.token:
-            QMessageBox.warning(self, "Ошибка", "Токен не задан")
-            return
-        GroupManagementWindow(token=self.token).exec()
+        self._open_window(GroupManagementWindow)
 
     def open_template_management(self):
-        if not self.token:
-            QMessageBox.warning(self, "Ошибка", "Токен не задан")
-            return
-        TemplateManagementWindow(token=self.token).exec()
+        self._open_window(TemplateManagementWindow)
 
     def open_campaign_management(self):
-        if not self.token:
-            QMessageBox.warning(self, "Ошибка", "Токен не задан")
-            return
-        CampaignManagementWindow(token=self.token).exec()
-    
+        self._open_window(CampaignManagementWindow)
+
+    def open_smtp_settings(self):
+        self._open_window(SettingsWindow)
+
     def open_help(self):
         HelpWindow().exec()
-
-    def open_smtp_settings(self):
-        if not self.token:
-            QMessageBox.warning(self, "Ошибка", "Токен не задан")
-            return
-        SettingsWindow(self.token).exec()
-
-    def open_user_management(self):
-        UserManagementWindow().exec()
-
-    def open_client_management(self):
-        ClientManagementWindow().exec()
-
-    def open_group_management(self):
-        GroupManagementWindow().exec()
-
-    def open_template_management(self):
-        TemplateManagementWindow().exec()
-
-    def open_campaign_management(self):
-        if not self.token:
-            QMessageBox.warning(self, "Ошибка", "Токен не задан")
-            return
-        CampaignManagementWindow(token=self.token).exec()
 
     def open_about(self):
         QMessageBox.information(self, "О системе", "Email Dispatch Demo\nВерсия 1.0\nАвтор: Юля")
 
     # --- API-запросы ---
+    def _show_api_data(self, endpoint, title, formatter):
+        if not self.token:
+            QMessageBox.warning(self, title, "Токен не задан")
+            return
+        headers = {'token': self.token}
+        try:
+            resp = requests.get(f"{BACKEND_URL}{endpoint}", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                items = resp.json()
+                msg = "\n".join([formatter(i) for i in items])
+                QMessageBox.information(self, title, msg or 'Пусто')
+            else:
+                QMessageBox.warning(self, title, f'Не удалось получить данные: {resp.text}')
+        except Exception as e:
+            QMessageBox.critical(self, title, f'Ошибка запроса: {e}')
+
     def show_users(self):
         self._show_api_data("/users/", "Пользователи", lambda u: f'{u["id"]}: {u["username"]} ({u.get("email","")})')
 
@@ -173,22 +154,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f'Ошибка при запуске кампании: {e}')
 
-    def _show_api_data(self, endpoint, title, formatter):
-        if not self.token:
-            QMessageBox.warning(self, title, "Токен не задан")
-            return
-        headers = {'token': self.token}
-        try:
-            resp = requests.get(f"{BACKEND_URL}{endpoint}", headers=headers, timeout=5)
-            if resp.status_code == 200:
-                items = resp.json()
-                msg = "\n".join([formatter(i) for i in items])
-                QMessageBox.information(self, title, msg or 'Пусто')
-            else:
-                QMessageBox.warning(self, title, f'Не удалось получить данные: {resp.text}')
-        except Exception as e:
-            QMessageBox.critical(self, title, f'Ошибка запроса: {e}')
-
     def preview_email(self, campaign_id: int, client_id: int):
         if not self.token:
             QMessageBox.warning(self, "Ошибка", "Токен не задан")
@@ -198,9 +163,8 @@ class MainWindow(QMainWindow):
             resp = requests.get(f"{BACKEND_URL}/emails/{campaign_id}/{client_id}", headers=headers, timeout=5)
             if resp.status_code == 200:
                 email_data = resp.json()
-                preview = EmailPreviewWindow(subject=email_data.get('subject', ''),
-                                            body=email_data.get('body', ''))
-                preview.exec()
+                EmailPreviewWindow(subject=email_data.get('subject', ''),
+                                  body=email_data.get('body', '')).exec()
             else:
                 QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить письмо: {resp.text}")
         except Exception as e:

@@ -10,8 +10,12 @@ from .api import templates, campaigns
 from .db import engine, SessionLocal
 from .models import Base, User
 from .scheduler import start_scheduler
+from .api import settings  # импорт
+from .api import groups  # импорт нового модуля
 
-app = FastAPI(title="Email Dispatch - Backend (демо)")
+
+
+app = FastAPI(title="Email Dispatch - Backend ")
 
 # Настройка CORS для фронтенда
 app.add_middleware(
@@ -28,6 +32,8 @@ app.include_router(users.router)
 app.include_router(clients.router)       # <-- добавлено
 app.include_router(templates.router)
 app.include_router(campaigns.router)
+app.include_router(settings.router)
+app.include_router(groups.router)
 
 @app.on_event("startup")
 def on_startup():
