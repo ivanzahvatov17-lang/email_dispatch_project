@@ -12,6 +12,7 @@ from .campaign_management_window import CampaignManagementWindow
 from .email_preview_window import EmailPreviewWindow
 from .client_management_window import ClientManagementWindow
 from .group_management_window import GroupManagementWindow
+from .send_campaign_window import SendCampaignWindow
 import requests
 import os
 
@@ -27,6 +28,7 @@ class MainWindow(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
+        # --- Меню ---
         menubar = self.menuBar()
         menu_settings = menubar.addMenu('Настройки')
         menu_help = menubar.addMenu('Помощь')
@@ -52,7 +54,7 @@ class MainWindow(QMainWindow):
         help_action.triggered.connect(self.open_help)
         menu_help.addAction(help_action)
 
-        # Центральный виджет
+        # --- Центральный виджет ---
         central = QWidget()
         layout = QVBoxLayout()
         lbl = QLabel('Добро пожаловать в систему автоматических рассылок.\n\nИспользуйте меню или кнопки ниже.')
@@ -65,7 +67,7 @@ class MainWindow(QMainWindow):
             ("Показать клиентов", self.show_clients),
             ("Показать шаблоны", self.show_templates),
             ("Показать кампании", self.show_campaigns),
-            ("Отправить кампанию ID=1", self.send_campaign)
+            ("Управление рассылкой", self.open_send_campaign)  # новая форма
         ]
         for text, func in btns:
             btn = QPushButton(text)
@@ -75,17 +77,14 @@ class MainWindow(QMainWindow):
         central.setLayout(layout)
         self.setCentralWidget(central)
 
-    # --- Методы открытия окон ---
-    def _open_window(self, window_class):
-        """
-        Универсальный метод для открытия диалоговых окон с передачей токена.
-        """
+    # --- Универсальный метод открытия окна с токеном ---
+    def _open_window(self, window_class, **kwargs):
         if not self.token:
             QMessageBox.warning(self, "Ошибка", "Токен не задан")
             return
-        window_class(token=self.token).exec()
+        window_class(token=self.token, **kwargs).exec()
 
-    # --- Методы открытия конкретных окон ---
+    # --- Методы открытия окон ---
     def open_user_management(self):
         self._open_window(UserManagementWindow)
 
@@ -109,6 +108,10 @@ class MainWindow(QMainWindow):
 
     def open_about(self):
         QMessageBox.information(self, "О системе", "Email Dispatch Demo\nВерсия 1.0\nАвтор: Захватов Иван Алексеевич")
+
+    def open_send_campaign(self):
+        """Открыть форму создания и управления рассылкой"""
+        self._open_window(SendCampaignWindow, campaign_id=1)  # если фиксированная кампания ID=1
 
     # --- API-запросы ---
     def _show_api_data(self, endpoint, title, formatter):
@@ -140,19 +143,8 @@ class MainWindow(QMainWindow):
         self._show_api_data("/campaigns/", "Кампании", lambda c: f'{c["id"]}: {c["name"]} [{c["status"]}]')
 
     def send_campaign(self):
-        if not self.token:
-            QMessageBox.warning(self, "Ошибка", "Токен не задан")
-            return
-        headers = {'token': self.token}
-        try:
-            resp = requests.post(f"{BACKEND_URL}/campaigns/1/start_now", headers=headers, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                QMessageBox.information(self, "Кампания", f'Статус кампании: {data.get("status")}')
-            else:
-                QMessageBox.warning(self, "Ошибка", f'Не удалось запустить кампанию: {resp.text}')
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f'Ошибка при запуске кампании: {e}')
+        """Открыть форму управления рассылкой (тот же метод, что и кнопка)"""
+        self.open_send_campaign()
 
     def preview_email(self, campaign_id: int, client_id: int):
         if not self.token:
@@ -164,7 +156,7 @@ class MainWindow(QMainWindow):
             if resp.status_code == 200:
                 email_data = resp.json()
                 EmailPreviewWindow(subject=email_data.get('subject', ''),
-                                  body=email_data.get('body', '')).exec()
+                                   body=email_data.get('body', '')).exec()
             else:
                 QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить письмо: {resp.text}")
         except Exception as e:

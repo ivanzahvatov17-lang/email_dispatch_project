@@ -1,4 +1,3 @@
-# backend/app/api/campaigns.py
 # -*- coding: utf-8 -*-
 from fastapi import APIRouter, Depends, HTTPException, Header
 from typing import List, Optional
@@ -31,6 +30,11 @@ class CampaignIn(BaseModel):
     scheduled_at: Optional[datetime] = None  # ISO format expected
 
 
+class CampaignSendIn(BaseModel):
+    group_id: Optional[int] = None
+    emails: Optional[List[str]] = []
+
+
 # --- Создать кампанию ---
 @router.post("/", response_model=dict)
 def create_campaign(data: CampaignIn, token: Optional[str] = Header(None), db: Session = Depends(get_db)):
@@ -38,7 +42,6 @@ def create_campaign(data: CampaignIn, token: Optional[str] = Header(None), db: S
         raise HTTPException(status_code=401, detail="Требуется токен")
     user = get_current_user(token)
 
-    # Проверка шаблона
     tpl = db.query(models.Template).filter(models.Template.id == data.template_id).first()
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -66,7 +69,6 @@ def create_campaign(data: CampaignIn, token: Optional[str] = Header(None), db: S
             db.add(cr)
     db.commit()
 
-    # Если есть scheduled_at — записываем задачу в планировщик
     if data.scheduled_at:
         schedule_campaign(campaign.id, data.scheduled_at)
 
@@ -84,11 +86,9 @@ def start_campaign_now(campaign_id: int, token: Optional[str] = Header(None), db
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    # ставим задачу на сейчас
     schedule_campaign(campaign.id, datetime.utcnow())
     campaign.status = "scheduled"
     db.commit()
-
     return {"status": "scheduled"}
 
 
@@ -111,11 +111,11 @@ def list_campaigns(token: Optional[str] = Header(None), db: Session = Depends(ge
     ]
 
 
-# --- Отправить кампанию выбранной группе ---
+# --- Отправить кампанию выбранной группе или по списку email ---
 @router.post("/{campaign_id}/send")
-ddef send_campaign_to_group(
+def send_campaign_to_group(
     campaign_id: int,
-    group_id: int,
+    data: CampaignSendIn,
     token: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
@@ -131,52 +131,54 @@ ddef send_campaign_to_group(
     if not template:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
 
-    group = db.query(models.Group).filter(models.Group.id == group_id).first()
-    if not group:
-        raise HTTPException(status_code=404, detail="Группа не найдена")
+    # --- Собираем список email ---
+    clients_emails = []
 
-    # через таблицу clients_groups
-    clients = (
-        db.query(models.Client)
-        .join(models.clients_groups)
-        .filter(models.clients_groups.c.group_id == group.id)
-        .all()
-    )
-    if not clients:
-        raise HTTPException(status_code=404, detail="В группе нет клиентов")
+    # 1. Если передали group_id, достаём клиентов из группы
+    if data.group_id:
+        group = db.query(models.Group).filter(models.Group.id == data.group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Группа не найдена")
+        group_clients = db.query(models.Client).join(models.clients_groups).filter(
+            models.clients_groups.c.group_id == group.id
+        ).all()
+        clients_emails.extend([c.email for c in group_clients])
 
-    # --- Достаём настройки SMTP ---
+    # 2. Добавляем email из body запроса
+    if data.emails:
+        clients_emails.extend(data.emails)
+
+    if not clients_emails:
+        raise HTTPException(status_code=400, detail="Нет клиентов для рассылки")
+
+    # --- SMTP настройки ---
     settings = {s.key: s.value for s in db.query(models.Setting).all()}
     required = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"]
     for r in required:
         if r not in settings:
             raise HTTPException(status_code=500, detail=f"Отсутствует настройка: {r}")
 
+    # --- Отправка писем ---
     try:
         server = smtplib.SMTP(settings["SMTP_HOST"], int(settings["SMTP_PORT"]))
         server.starttls()
         server.login(settings["SMTP_USER"], settings["SMTP_PASS"])
 
         sent = 0
-        for client in clients:
+        for email in clients_emails:
             msg = MIMEText(template.body, "html", "utf-8")
             msg["Subject"] = template.subject
             msg["From"] = settings["SMTP_FROM"]
-            msg["To"] = client.email
+            msg["To"] = email
 
-            server.sendmail(settings["SMTP_FROM"], client.email, msg.as_string())
+            server.sendmail(settings["SMTP_FROM"], email, msg.as_string())
             sent += 1
 
         server.quit()
         campaign.status = "completed"
         db.commit()
 
-        return {
-            "status": "success",
-            "sent": sent,
-            "campaign_id": campaign.id,
-            "group_id": group.id
-        }
+        return {"status": "success", "sent": sent, "campaign_id": campaign.id}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при отправке: {e}")
