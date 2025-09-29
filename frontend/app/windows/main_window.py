@@ -108,7 +108,7 @@ class MainWindow(QMainWindow):
         HelpWindow().exec()
 
     def open_about(self):
-        QMessageBox.information(self, "О системе", "Email Dispatch Demo\nВерсия 1.0\nАвтор: Юля")
+        QMessageBox.information(self, "О системе", "Email Dispatch Demo\nВерсия 1.0\nАвтор: Захватов Иван Алексеевич")
 
     # --- API-запросы ---
     def _show_api_data(self, endpoint, title, formatter):

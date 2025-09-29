@@ -113,7 +113,7 @@ def list_campaigns(token: Optional[str] = Header(None), db: Session = Depends(ge
 
 # --- Отправить кампанию выбранной группе ---
 @router.post("/{campaign_id}/send")
-def send_campaign_to_group(
+ddef send_campaign_to_group(
     campaign_id: int,
     group_id: int,
     token: Optional[str] = Header(None),
@@ -135,7 +135,13 @@ def send_campaign_to_group(
     if not group:
         raise HTTPException(status_code=404, detail="Группа не найдена")
 
-    clients = db.query(models.Client).filter(models.Client.group_id == group.id).all()
+    # через таблицу clients_groups
+    clients = (
+        db.query(models.Client)
+        .join(models.clients_groups)
+        .filter(models.clients_groups.c.group_id == group.id)
+        .all()
+    )
     if not clients:
         raise HTTPException(status_code=404, detail="В группе нет клиентов")
 
@@ -165,7 +171,12 @@ def send_campaign_to_group(
         campaign.status = "completed"
         db.commit()
 
-        return {"status": "success", "sent": sent, "campaign_id": campaign.id, "group_id": group.id}
+        return {
+            "status": "success",
+            "sent": sent,
+            "campaign_id": campaign.id,
+            "group_id": group.id
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при отправке: {e}")
