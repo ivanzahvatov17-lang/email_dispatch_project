@@ -4,6 +4,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from pydantic import BaseModel
+from pydantic import BaseModel
 
 class UserCreate(BaseModel):
     username: str
@@ -40,3 +41,19 @@ class GroupOut(BaseModel):
 class GroupUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    
+class TemplateCreate(BaseModel):
+    name: str
+    subject: str
+    body: str
+
+class TemplateOut(BaseModel):
+    id: int
+    name: str
+    subject: str
+    body: str
+    creator_id: int
+
+    model_config = {
+        "from_attributes": True  # для SQLAlchemy V2
+    }
