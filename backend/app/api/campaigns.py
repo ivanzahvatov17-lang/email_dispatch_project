@@ -10,7 +10,11 @@ from .. import models
 from ..scheduler import schedule_campaign
 from ..api.auth import get_current_user
 
+import smtplib
+from email.mime.text import MIMEText
+
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+
 
 def get_db():
     db = SessionLocal()
@@ -19,60 +23,149 @@ def get_db():
     finally:
         db.close()
 
+
 class CampaignIn(BaseModel):
     name: str
     template_id: int
     recipient_client_ids: List[int] = []
     scheduled_at: Optional[datetime] = None  # ISO format expected
 
+
+# --- Создать кампанию ---
 @router.post("/", response_model=dict)
 def create_campaign(data: CampaignIn, token: Optional[str] = Header(None), db: Session = Depends(get_db)):
     if token is None:
         raise HTTPException(status_code=401, detail="Требуется токен")
     user = get_current_user(token)
+
     # Проверка шаблона
     tpl = db.query(models.Template).filter(models.Template.id == data.template_id).first()
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
-    campaign = models.Campaign(name=data.name, template_id=tpl.id, creator_id=user.id,
-                               scheduled_at=data.scheduled_at, status='scheduled' if data.scheduled_at else 'draft')
+
+    campaign = models.Campaign(
+        name=data.name,
+        template_id=tpl.id,
+        creator_id=user.id,
+        scheduled_at=data.scheduled_at,
+        status="scheduled" if data.scheduled_at else "draft",
+    )
     db.add(campaign)
     db.commit()
     db.refresh(campaign)
+
     # Добавляем получателей
     for cid in data.recipient_client_ids:
         client = db.query(models.Client).filter(models.Client.id == cid).first()
         if client:
-            cr = models.CampaignRecipient(campaign_id=campaign.id, client_id=client.id, status='pending')
+            cr = models.CampaignRecipient(
+                campaign_id=campaign.id,
+                client_id=client.id,
+                status="pending"
+            )
             db.add(cr)
     db.commit()
+
     # Если есть scheduled_at — записываем задачу в планировщик
     if data.scheduled_at:
         schedule_campaign(campaign.id, data.scheduled_at)
+
     return {"id": campaign.id, "status": campaign.status}
 
+
+# --- Запустить кампанию немедленно ---
 @router.post("/{campaign_id}/start_now")
 def start_campaign_now(campaign_id: int, token: Optional[str] = Header(None), db: Session = Depends(get_db)):
-    """
-    Немедленно запустить кампанию (вызовет ту же логику, что и планировщик).
-    Мы просто ставим задачу на ближайшее время.
-    """
     if token is None:
         raise HTTPException(status_code=401, detail="Требуется токен")
-    user = get_current_user(token)
+    _ = get_current_user(token)
+
     campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
     # ставим задачу на сейчас
     schedule_campaign(campaign.id, datetime.utcnow())
-    campaign.status = 'scheduled'
+    campaign.status = "scheduled"
     db.commit()
+
     return {"status": "scheduled"}
 
+
+# --- Список кампаний ---
 @router.get("/", response_model=List[dict])
 def list_campaigns(token: Optional[str] = Header(None), db: Session = Depends(get_db)):
     if token is None:
         raise HTTPException(status_code=401, detail="Требуется токен")
     _ = get_current_user(token)
+
     rows = db.query(models.Campaign).all()
-    return [{"id": r.id, "name": r.name, "status": r.status, "scheduled_at": r.scheduled_at.isoformat() if r.scheduled_at else None} for r in rows]
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "status": r.status,
+            "scheduled_at": r.scheduled_at.isoformat() if r.scheduled_at else None,
+        }
+        for r in rows
+    ]
+
+
+# --- Отправить кампанию выбранной группе ---
+@router.post("/{campaign_id}/send")
+def send_campaign_to_group(
+    campaign_id: int,
+    group_id: int,
+    token: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    if token is None:
+        raise HTTPException(status_code=401, detail="Требуется токен")
+    _ = get_current_user(token)
+
+    campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Кампания не найдена")
+
+    template = db.query(models.Template).filter(models.Template.id == campaign.template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Шаблон не найден")
+
+    group = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+
+    clients = db.query(models.Client).filter(models.Client.group_id == group.id).all()
+    if not clients:
+        raise HTTPException(status_code=404, detail="В группе нет клиентов")
+
+    # --- Достаём настройки SMTP ---
+    settings = {s.key: s.value for s in db.query(models.Setting).all()}
+    required = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"]
+    for r in required:
+        if r not in settings:
+            raise HTTPException(status_code=500, detail=f"Отсутствует настройка: {r}")
+
+    try:
+        server = smtplib.SMTP(settings["SMTP_HOST"], int(settings["SMTP_PORT"]))
+        server.starttls()
+        server.login(settings["SMTP_USER"], settings["SMTP_PASS"])
+
+        sent = 0
+        for client in clients:
+            msg = MIMEText(template.body, "html", "utf-8")
+            msg["Subject"] = template.subject
+            msg["From"] = settings["SMTP_FROM"]
+            msg["To"] = client.email
+
+            server.sendmail(settings["SMTP_FROM"], client.email, msg.as_string())
+            sent += 1
+
+        server.quit()
+        campaign.status = "completed"
+        db.commit()
+
+        return {"status": "success", "sent": sent, "campaign_id": campaign.id, "group_id": group.id}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при отправке: {e}")
