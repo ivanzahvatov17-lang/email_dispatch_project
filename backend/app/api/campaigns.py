@@ -14,7 +14,6 @@ from email.mime.text import MIMEText
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
-
 def get_db():
     db = SessionLocal()
     try:
@@ -22,23 +21,21 @@ def get_db():
     finally:
         db.close()
 
-
+# --- Схемы ---
 class CampaignIn(BaseModel):
     name: str
     template_id: int
     recipient_client_ids: List[int] = []
-    scheduled_at: Optional[datetime] = None  # ISO format expected
-
+    scheduled_at: Optional[datetime] = None
 
 class CampaignSendIn(BaseModel):
     group_id: Optional[int] = None
     emails: Optional[List[str]] = []
 
-
 # --- Создать кампанию ---
 @router.post("/", response_model=dict)
 def create_campaign(data: CampaignIn, token: Optional[str] = Header(None), db: Session = Depends(get_db)):
-    if token is None:
+    if not token:
         raise HTTPException(status_code=401, detail="Требуется токен")
     user = get_current_user(token)
 
@@ -51,7 +48,7 @@ def create_campaign(data: CampaignIn, token: Optional[str] = Header(None), db: S
         template_id=tpl.id,
         creator_id=user.id,
         scheduled_at=data.scheduled_at,
-        status="scheduled" if data.scheduled_at else "draft",
+        status="scheduled" if data.scheduled_at else "draft"
     )
     db.add(campaign)
     db.commit()
@@ -61,12 +58,10 @@ def create_campaign(data: CampaignIn, token: Optional[str] = Header(None), db: S
     for cid in data.recipient_client_ids:
         client = db.query(models.Client).filter(models.Client.id == cid).first()
         if client:
-            cr = models.CampaignRecipient(
-                campaign_id=campaign.id,
-                client_id=client.id,
-                status="pending"
-            )
-            db.add(cr)
+            exists = db.query(models.CampaignRecipient).filter_by(campaign_id=campaign.id, client_id=client.id).first()
+            if not exists:
+                cr = models.CampaignRecipient(campaign_id=campaign.id, client_id=client.id, status="pending")
+                db.add(cr)
     db.commit()
 
     if data.scheduled_at:
@@ -74,11 +69,10 @@ def create_campaign(data: CampaignIn, token: Optional[str] = Header(None), db: S
 
     return {"id": campaign.id, "status": campaign.status}
 
-
 # --- Запустить кампанию немедленно ---
 @router.post("/{campaign_id}/start_now")
 def start_campaign_now(campaign_id: int, token: Optional[str] = Header(None), db: Session = Depends(get_db)):
-    if token is None:
+    if not token:
         raise HTTPException(status_code=401, detail="Требуется токен")
     _ = get_current_user(token)
 
@@ -91,11 +85,10 @@ def start_campaign_now(campaign_id: int, token: Optional[str] = Header(None), db
     db.commit()
     return {"status": "scheduled"}
 
-
 # --- Список кампаний ---
 @router.get("/", response_model=List[dict])
 def list_campaigns(token: Optional[str] = Header(None), db: Session = Depends(get_db)):
-    if token is None:
+    if not token:
         raise HTTPException(status_code=401, detail="Требуется токен")
     _ = get_current_user(token)
 
@@ -110,8 +103,7 @@ def list_campaigns(token: Optional[str] = Header(None), db: Session = Depends(ge
         for r in rows
     ]
 
-
-# --- Отправить кампанию выбранной группе или по списку email ---
+# --- Отправка кампании ---
 @router.post("/{campaign_id}/send")
 def send_campaign_to_group(
     campaign_id: int,
@@ -119,7 +111,7 @@ def send_campaign_to_group(
     token: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
-    if token is None:
+    if not token:
         raise HTTPException(status_code=401, detail="Требуется токен")
     _ = get_current_user(token)
 
@@ -131,10 +123,8 @@ def send_campaign_to_group(
     if not template:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
 
-    # --- Собираем список email ---
     clients_emails = []
 
-    # 1. Если передали group_id, достаём клиентов из группы
     if data.group_id:
         group = db.query(models.Group).filter(models.Group.id == data.group_id).first()
         if not group:
@@ -144,21 +134,18 @@ def send_campaign_to_group(
         ).all()
         clients_emails.extend([c.email for c in group_clients])
 
-    # 2. Добавляем email из body запроса
     if data.emails:
         clients_emails.extend(data.emails)
 
     if not clients_emails:
         raise HTTPException(status_code=400, detail="Нет клиентов для рассылки")
 
-    # --- SMTP настройки ---
     settings = {s.key: s.value for s in db.query(models.Setting).all()}
     required = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"]
     for r in required:
         if r not in settings:
             raise HTTPException(status_code=500, detail=f"Отсутствует настройка: {r}")
 
-    # --- Отправка писем ---
     try:
         server = smtplib.SMTP(settings["SMTP_HOST"], int(settings["SMTP_PORT"]))
         server.starttls()
@@ -166,11 +153,10 @@ def send_campaign_to_group(
 
         sent = 0
         for email in clients_emails:
-            msg = MIMEText(template.body, "html", "utf-8")
+            msg = MIMEText(template.body_html, "html", "utf-8")
             msg["Subject"] = template.subject
             msg["From"] = settings["SMTP_FROM"]
             msg["To"] = email
-
             server.sendmail(settings["SMTP_FROM"], email, msg.as_string())
             sent += 1
 
@@ -182,3 +168,57 @@ def send_campaign_to_group(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при отправке: {e}")
+
+# --- Список участников кампании с full_name ---
+@router.get("/{campaign_id}/recipients", response_model=List[dict])
+def get_campaign_recipients(campaign_id: int, token: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    if not token:
+        raise HTTPException(status_code=401, detail="Требуется токен")
+    _ = get_current_user(token)
+
+    recipients = db.query(models.CampaignRecipient).filter_by(campaign_id=campaign_id).all()
+    result = []
+    for r in recipients:
+        client = db.query(models.Client).filter(models.Client.id == r.client_id).first()
+        if not client:
+            continue
+        full_name = getattr(client, "full_name", f"Клиент {client.id}")
+        result.append({"client_id": r.client_id, "full_name": full_name, "status": r.status})
+    return result
+
+# --- Добавить клиента в кампанию ---
+@router.post("/{campaign_id}/add_client/{client_id}")
+def add_client_to_campaign(campaign_id: int, client_id: int, token: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    if not token:
+        raise HTTPException(status_code=401, detail="Требуется токен")
+    _ = get_current_user(token)
+
+    campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
+    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+
+    if not campaign or not client:
+        raise HTTPException(status_code=404, detail="Кампания или клиент не найдены")
+
+    existing = db.query(models.CampaignRecipient).filter_by(campaign_id=campaign.id, client_id=client.id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Клиент уже добавлен в кампанию")
+
+    cr = models.CampaignRecipient(campaign_id=campaign.id, client_id=client.id)
+    db.add(cr)
+    db.commit()
+    return {"status": "added", "campaign_id": campaign.id, "client_id": client.id}
+
+# --- Удалить клиента из кампании ---
+@router.delete("/{campaign_id}/remove_client/{client_id}")
+def remove_client_from_campaign(campaign_id: int, client_id: int, token: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    if not token:
+        raise HTTPException(status_code=401, detail="Требуется токен")
+    _ = get_current_user(token)
+
+    cr = db.query(models.CampaignRecipient).filter_by(campaign_id=campaign_id, client_id=client_id).first()
+    if not cr:
+        raise HTTPException(status_code=404, detail="Клиент не найден в кампании")
+
+    db.delete(cr)
+    db.commit()
+    return {"status": "removed", "campaign_id": campaign_id, "client_id": client_id}
